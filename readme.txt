@@ -50,7 +50,7 @@ Thanks.
 
 Release History
 
-0.1 / February 6th 2023
+0.2 / February 6th 2023
 
 First public release.
 
