@@ -1,6 +1,6 @@
 ================================================================================
 
-  Conway's Game of Life - Commodore C64 v0.2
+  Conway's Game of Life - Commodore C64 v0.3
   (c) Paul Alan Freshney 2022-2023
 
   paul@freshney.org
@@ -27,6 +27,7 @@ Cell animation runs at 10Hz.
       gol mode : starts game of life animation.
     up, clears the screen
     down, clears the screen with random data
+	right, cycles through cell designs
    
 Known issues:
 Cells at the edges are not correctly processed... to do.
@@ -49,6 +50,13 @@ Thanks.
 ================================================================================
 
 Release History
+
+0.3 / February 8th 2023
+
+Minor optimisation to cell processing.
+Minor optimisation to "jump selection" calculation.
+
+Added alternate cell designs.
 
 0.2 / February 6th 2023
 

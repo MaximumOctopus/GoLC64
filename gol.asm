@@ -1,34 +1,35 @@
 ; ==============================================================
 ; =                                                            =
-; = Conway's Game of Life, Commodore C64 v0.2                  =
+; = Conway's Game of Life, Commodore C64 v0.3                  =
 ; =                                                            =
 ; = (c) Paul Alan Freshney 2023 / paul@freshney.org			   =
 ; =                                                            =
 ; = https://github.com/MaximumOctopus/GoLC64                   =
 ; =                                                            =
-; = February 6th 2023                                          =
+; = February 8th 2023                                          =
 ; =                                                            =
 ; ==============================================================
 
 ; Processes cells $000-$0FF in frame 1
 ;           cells $100-$1FF in frame 2
 ;           cells $200-$2FF in frame 3
-;           cells $300-$3FF in frame 4
+;           cells $300-$3F7 in frame 4
 ; Copies cell data from cell RAM to screen in frame 5
 
 ; Joystick 1:
 ;   fire, set a cell "live" (when draw mode active)
-;   up, clears the screen
-;   down, clears the screen with random data
 
 ; Joystick 2:
 ;   fire, toggles mode
 ;     draw mode: pauses game of life animation.
 ;     gol mode : starts game of life animation.
+;   up, clears the screen
+;   down, clears the screen with random data
+;   right, cycles through cell designs
 
 				; == debug ==================================================================================================
 				
-				FRAMETIME    = 1			; set it to 1 to show frame execution time
+				FRAMETIME    = 0			; set it to 1 to show frame execution time
 
 				; == constants ==============================================================================================
 
@@ -44,13 +45,19 @@
 				
 				XMIN         = $18
 				YMIN         = $32
-				XMAX         = $50		; when sprite one, bit #8 ($d010:0) is 1
+				XMAX         = $50		; only when sprite one, bit #8 ($d010:0) is 1
 				YMAX         = $f2
+
+				HIBCHUNK1    = $41		; $4100-$4400 for cell processing
+				HIBCHUNK2    = $42		;
+				HIBCHUNK3    = $43		;
+				HIBCHUNK4    = $44		;
+				HIBCPYBUFFER = $45		; $4500 copy from cell data to screen (gives cell update rate of 10Hz)
+				HIBCPYBLANK  = $46		; $4600 to clear the screen the next frame
+				HIBCPYRANDOM = $47		; $4700 to clear the screen with random data next frame
+				HIBPOST		 = $48		; $4800 post-processing, joystick etc.
 				
-				PIPELINE     = $16		; $00-$03 for cell processing
-				COPYBUFFER   = $04		; $04 for copy from cell data to screen (gives cell update rate of 10Hz)
-				BLANKSCREEN  = $05		; $05 to clear the screen the next frame
-				RANDOMSCREEN = $06 		; $06 to clear the screen with random data next frame
+				CHAROFFSET   = $48		; next char (used for live cells) will be read from celldesign + this offset
 										
 				TOGGLE       = $17
 				JOYCOPY      = $18		; copy of joystick 2 used to debounce mode change
@@ -106,7 +113,11 @@ cls				lda CELLRAM,x
 				bne cls
 				
 				lda #$00
-				sta PIPELINE
+				sta CHAROFFSET
+				
+				lda #HIBCHUNK1
+				sta jumpselect+2
+				lda #$00				; set animation mode
 				sta TOGGLE
 				
 				lda #$ff
@@ -152,19 +163,8 @@ main	    	bit $d011 				; Wait for new frame
 				lda #$00
 				sta $d020
 				.endif
-				
-				lda TOGGLE
-				beq jumpsetup
-				
-				jmp post
-		
-jumpsetup		lda #$41
-				
-				clc
-				adc PIPELINE
-				sta jumpselect+2
-				
-jumpselect		jmp $4100
+								
+jumpselect		jmp $4100				; modified by code
 
 ; ======================================================================================================
 
@@ -186,14 +186,15 @@ cgolq			clc
 				adc SCREENRAM+41,x	
 						
 applyrules		beq store
-				
+				                                                                    
 				cmp #2
 				beq nextloop
 				
 				tay
 				lda $60,y
 				sta CELLRAM,x
-				inx
+				
+nextloop		inx
 				bne cgol1
 				
 				jmp chunk1finish
@@ -201,13 +202,8 @@ applyrules		beq store
 store			sta CELLRAM,x
 				inx
 				bne cgolq
-				
-				jmp chunk1finish
-				
-nextloop		inx
-				bne cgol1
-				
-chunk1finish	inc PIPELINE
+
+chunk1finish	inc jumpselect+2
 
 				jmp post
 
@@ -239,7 +235,7 @@ applyrules2		beq store2
 				lda $60,y
 				sta CELLRAM+$100,x
 				
-				inx
+nextloop2		inx
 				bne cgol2
 				
 				jmp chunkfinish2
@@ -248,12 +244,7 @@ store2			sta CELLRAM+$100,x
 				inx
 				bne cgol2q
 				
-				jmp chunkfinish2
-				
-nextloop2		inx
-				bne cgol2
-				
-chunkfinish2	inc PIPELINE
+chunkfinish2	inc jumpselect+2
 
 				jmp post
 
@@ -285,7 +276,7 @@ applyrules3		beq store3
 				lda $60,y
 				sta CELLRAM+$200,x
 				
-				inx
+nextloop3		inx
 				bne cgol3
 				
 				jmp chunkfinish3
@@ -294,12 +285,7 @@ store3			sta CELLRAM+$200,x
 				inx
 				bne cgol3q
 				
-				jmp chunkfinish3
-				
-nextloop3		inx
-				bne cgol3
-				
-chunkfinish3	inc PIPELINE
+chunkfinish3	inc jumpselect+2
 
 				jmp post
 
@@ -331,21 +317,18 @@ applyrules4		beq store4
 				lda $60,y
 				sta CELLRAM+$300,x
 				
-				inx
+nextloop4		inx
+				cpx #$f8
 				bne cgol4
 				
 				jmp chunkfinish4
 
 store4			sta CELLRAM+$300,x
 				inx
+				cpx #$f8
 				bne cgol4q
 				
-				jmp chunkfinish4
-				
-nextloop4		inx
-				bne cgol4
-				
-chunkfinish4	inc PIPELINE
+chunkfinish4	inc jumpselect+2
 
 				jmp post
 
@@ -365,7 +348,8 @@ cellcopy		lda CELLRAM,x
 				inx
 				bne cellcopy
 				
-				sta PIPELINE
+				lda #HIBCHUNK1
+				sta jumpselect+2
 				
 				jmp post
 
@@ -382,7 +366,8 @@ clearcopy		sta SCREENRAM,x
 				inx
 				bne clearcopy
 				
-				sta PIPELINE
+				lda #HIBCHUNK1
+				sta jumpselect+2
 				
 				jmp post
 				
@@ -413,7 +398,8 @@ clearrandom		lda $d41b
 				inx
 				bne clearrandom
 				
-				stx PIPELINE			; ensures cell processing starts from the beginning
+				lda #HIBCHUNK1
+				sta jumpselect+2		; ensures cell processing starts from the beginning
 
 				jmp post
 
@@ -424,22 +410,46 @@ clearrandom		lda $d41b
 post			
 
 ; ======================================================================================================
+; ======================================================================================================
 
 joyupclear		lda #$01                
 				bit $dc01
-				bne joydownrnd
+				bne joyrightchar
 				
-				lda #BLANKSCREEN		; screen clear will occur next frame
-				sta PIPELINE
+				lda #HIBCPYBLANK		; screen clear will occur next frame
+				sta jumpselect+2
 				
 				jmp joytogglemode
+				
+joyrightchar	lda #$08
+				bit $dc01
+				bne joydownrnd
+				
+				ldx CHAROFFSET
+				ldy #$00
+copychar		lda celldesign,x
+				sta CHARRAM+8,y
+				inx
+				iny
+				cpy #8
+				bne copychar
+				
+				cpx #14*8
+				beq resetoffset
+				
+				stx CHAROFFSET
+				
+				jmp joydownrnd
+				
+resetoffset		lda #$00
+				sta CHAROFFSET
 				
 joydownrnd		lda #$02
 				bit $dc01
 				bne joytogglemode
 				
-				lda #RANDOMSCREEN		; random screen fill will occur next frame
-				sta PIPELINE				
+				lda #HIBCPYRANDOM		; random screen fill will occur next frame
+				sta jumpselect+2				
 
 joytogglemode	lda #$10
 				bit $dc01     
@@ -455,7 +465,8 @@ joytogglemode	lda #$10
 		
 cleardrawmode   lda #$00
 				sta TOGGLE
-				sta PIPELINE
+				lda #HIBCHUNK1
+				sta jumpselect+2
 				
 				ldy #$02				; alter sprite colour to red
 				sty $d027				; 
@@ -466,6 +477,8 @@ cleardrawmode   lda #$00
 		
 setdrawmode		lda #$01
 				sta TOGGLE
+				lda #HIBPOST
+				sta jumpselect+2
 				
 				lda #$0e				; alter sprite colour to yellow
 				sta $d027				; 
@@ -477,6 +490,8 @@ setdrawmode		lda #$01
 
 joyclear		lda #$ff
 				sta JOYCOPY
+				
+; ======================================================================================================
 
 joy2check		lda $dc00
 				cmp #$7f
@@ -521,8 +536,8 @@ lsram			sec						; update the location of the screen ram address under the sprit
 				
 				jmp joyfire
 
-joyright		lda #$08                
-				bit $dc00               
+joyright		lda #$08
+				bit $dc00
 				bne joyup
 
 				lda #$01				; only check for going out of screen bounds if bit #8 of x-coordinate is set
@@ -607,6 +622,7 @@ writeto			sta SCREENRAM			; modified by code, represents the position in screen 
 joyend
 
 ; ======================================================================================================
+
 				.if FRAMETIME
 				lda #$01
 				sta $d020
@@ -620,7 +636,24 @@ joyend
 
 				.align $100
 
-cellram			.fill 1024, [CELLON, CELLOFF, CELLOFF, CELLON, CELLOFF, CELLON, CELLOFF, CELLON, CELLON]
+cellram			.fill 1000, [CELLON, CELLOFF, CELLOFF, CELLON, CELLOFF, CELLON, CELLOFF, CELLON, CELLON]
+				.fill 40, [CELLOFF]
+
+celldesign      .byte $fe, $fe, $fe, $fe, $fe, $fe, $fe, $00
+				.byte $fe, $82, $82, $82, $82, $82, $fe, $00
+				.byte $fe, $82, $ba, $aa, $ba, $82, $fe, $00
+				.byte $fc, $84, $84, $84, $84, $fc, $00, $00
+				.byte $fe, $fe, $c6, $c6, $c6, $fe, $fe, $00
+				.byte $7c, $fe, $ee, $c6, $ee, $fe, $7c, $00
+				.byte $7c, $ee, $c6, $92, $c6, $ee, $7c, $00
+				.byte $28, $7c, $fe, $6c, $fe, $7c, $28, $00
+				.byte $7c, $c6, $82, $92, $82, $c6, $7c, $00
+				.byte $6c, $ee, $c6, $10, $c6, $ee, $6c, $00
+				.byte $10, $54, $38, $fe, $38, $54, $10, $00
+				.byte $00, $38, $7c, $6c, $7c, $38, $00, $00
+				.byte $00, $3c, $7e ,$66, $66, $7e, $3c, $00
+				.byte $7c, $82, $82, $82, $82, $82, $7c, $00
+				.byte $ba, $7c, $ee, $c6, $ee, $7c, $ba, $00
 
 ; ======================================================================================================
 
@@ -636,5 +669,5 @@ cellram			.fill 1024, [CELLON, CELLOFF, CELLOFF, CELLON, CELLOFF, CELLON, CELLOF
 		
 				*=CHARRAM
 		
-				.byte $00, $00, $00, $00, $00, $00, $00, $00
-				.byte $fe, $fe, $fe, $fe, $fe, $fe, $fe, $00
+				.byte $00, $00, $00, $00, $00, $00, $00, $00			; dead cell
+				.byte $fe, $fe, $fe, $fe, $fe, $fe, $fe, $00			; live cell
